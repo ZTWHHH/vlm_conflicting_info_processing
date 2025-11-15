@@ -201,6 +201,42 @@ class SingleObjectVOC(Dataset):
         return image, self._raw_classes.index(raw_label)
 
 
+class CogControl2Dataset(Dataset):
+    def __init__(self, root_dir, json_file, split='val'):
+        """
+        CogControl2 dataset loader
+        root_dir: Directory containing images
+        json_file: Path to cogcontrol2_single_image_p0.json
+        split: 'train' or 'val' (currently using all data as val)
+        """
+        self.root_dir = root_dir
+        with open(json_file, 'r') as f:
+            self.data = json.load(f)
+        
+        # Extract unique concept_types and create mapping
+        concept_types = sorted(set(item['concept_type'] for item in self.data))
+        self.concept_to_idx = {concept: idx for idx, concept in enumerate(concept_types)}
+        self.classes = concept_types  # For compatibility
+        
+        print(f"CogControl2 [{split.upper()}] Loaded {len(self.data)} samples with {len(concept_types)} unique concepts")
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        
+        # Load image
+        image_filename = item['media'][0]
+        image_path = os.path.join(self.root_dir, image_filename)
+        image = Image.open(image_path).convert('RGB')
+        
+        # Return concept index as "label" for compatibility
+        concept_idx = self.concept_to_idx[item['concept_type']]
+        
+        return image, concept_idx, item['concept_type']
+
+
 class MultimodalDataset(Dataset):
     def __init__(self, args, split, prompt_generator, simple_caption=False):
         self.args = args
@@ -213,7 +249,7 @@ class MultimodalDataset(Dataset):
         self.classes = self._get_classes()
         self.idx_to_class = self._get_idx_to_class()
 
-        self.all_sources, self.all_choices, self.all_image_labels, self.all_caption_labels, self.all_relative_image_pos, self.all_relative_caption_pos = self._process_data()
+        self.all_sources, self.all_choices, self.all_image_labels, self.all_caption_labels, self.all_relative_image_pos, self.all_relative_caption_pos, self.all_concept_types = self._process_data()
 
     def __len__(self):
 
@@ -221,7 +257,7 @@ class MultimodalDataset(Dataset):
 
     def _get_classes(self):
 
-        if self.args.dataset in ["cifar10", "imagenet100", "Pascal", "CUB_color"]:
+        if self.args.dataset in ["cifar10", "imagenet100", "Pascal", "CUB_color", "cogcontrol2"]:
             return self.data.classes
         elif self.args.dataset in ["cifar100"]:
             return [c.replace("_", " ") for c in self.data.classes]
@@ -232,6 +268,8 @@ class MultimodalDataset(Dataset):
         
         if self.args.dataset in ["cifar10", "imagenet100", "Pascal", "CUB_color"]:
             return {v:k for k, v in self.data.class_to_idx.items()}
+        elif self.args.dataset in ["cogcontrol2"]:
+            return {v:k for k, v in self.data.concept_to_idx.items()}
         elif self.args.dataset in ["cifar100"]:
             return {v:k.replace("_", " ") for k, v in self.data.class_to_idx.items()}
         else:
@@ -266,6 +304,14 @@ class MultimodalDataset(Dataset):
                 root_dir=CUB_DIR,
                 split= "train" if self.split == "train" else "valid"
             )
+        elif self.args.dataset in ["cogcontrol2"]:
+            json_file = "/data/ztw/data/cogcontrol2/cogcontrol2_frame/p0/cogcontrol2_single_image_p0.json"
+            image_dir = "/data/ztw/data/cogcontrol2/cogcontrol2_media"
+            return CogControl2Dataset(
+                root_dir=image_dir,
+                json_file=json_file,
+                split=self.split
+            )
         else:
             raise NotImplementedError(f"{self.args.dataset} dataset not supported yet")
 
@@ -275,9 +321,18 @@ class MultimodalDataset(Dataset):
     def _process_data(self):
         all_sources, all_choices, all_image_labels, all_caption_labels = [],[],[],[]
         all_relative_image_pos, all_relative_caption_pos = [], []
+        all_concept_types = []
+        
         for ex_id, example in tqdm(enumerate(self.data), total=len(self), desc=f"{self.args.dataset} {self.split}: "):
 
-            image, image_label = example 
+            # Handle cogcontrol2 dataset which returns 3 values
+            if self.args.dataset == "cogcontrol2":
+                image, image_label, concept_type = example
+                all_concept_types.append(concept_type)
+            else:
+                image, image_label = example
+                all_concept_types.append(None)  # For compatibility
+            
             caption_label = get_caption_label(self.args, self.classes, image_label)
 
             if self.simple_caption:
@@ -297,7 +352,7 @@ class MultimodalDataset(Dataset):
             all_relative_image_pos.append(im_rel_pos)
             all_relative_caption_pos.append(cap_rel_pos)
 
-        return all_sources, all_choices, all_image_labels, all_caption_labels, all_relative_image_pos, all_relative_caption_pos
+        return all_sources, all_choices, all_image_labels, all_caption_labels, all_relative_image_pos, all_relative_caption_pos, all_concept_types
  
     def get_image(self, idx):
         return self.data[idx][0]
@@ -308,6 +363,9 @@ class MultimodalDataset(Dataset):
                 self.data.class_to_idx[c]
                 for c in choices
             ]
+        elif self.args.dataset in ["cogcontrol2"]:
+            # For cogcontrol2, choices are text options, map to indices
+            return list(range(len(choices)))
         elif self.args.dataset in ["cifar100"]:
             return [
                 self.data.class_to_idx[c.replace(" ", "_")]
@@ -319,7 +377,7 @@ class MultimodalDataset(Dataset):
     def __getitem__(self, idx):
         choices = self.all_choices[idx]
         choice_ids = self.get_choice_ids(choices)
-        return {
+        result = {
             "source": self.all_sources[idx],
             "choices": choices,
             "choice_ids": choice_ids,
@@ -329,6 +387,12 @@ class MultimodalDataset(Dataset):
             "relative_caption_label": self.all_relative_caption_pos[idx],
             "image": self.get_image(idx),
         }
+        
+        # Add concept_type if available (for cogcontrol2)
+        if self.all_concept_types[idx] is not None:
+            result["concept_type"] = self.all_concept_types[idx]
+        
+        return result
 
 
 class LmEvaluationDataCollator:

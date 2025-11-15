@@ -58,14 +58,23 @@ def run_head_attribution(args, processor, model, dataset, target_modality, n_sam
     if os.path.exists(output_path):
         print("Found existing precompute_logit_diff.pkl")
         with open(output_path, "rb") as f:
-            all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list = pkl.load(f)
-        return all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list
+            saved_data = pkl.load(f)
+            # Handle both old and new formats
+            if len(saved_data) == 4:
+                all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list = saved_data
+                concept_types = None
+            else:
+                all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list, concept_types = saved_data
+        return all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list, concept_types
 
     all_logit_diffs = np.zeros((n_samples, N_LAYERS, N_HEADS))
 
     all_total_logit_diffs = np.zeros((n_samples,))
 
     all_predictions_clean = []
+    
+    # Track concept_types if available
+    concept_types = []
 
     curr_num_samples = 0
     num_invalid = 0
@@ -78,6 +87,9 @@ def run_head_attribution(args, processor, model, dataset, target_modality, n_sam
 
         prompt = dataset[sample_idx]['source']
         image = dataset[sample_idx]['image']
+        
+        # Track concept_type if available
+        concept_type = dataset[sample_idx].get('concept_type', None)
 
         if args.model_family in ["llava", "instructblip"]:
             caption_label_word = dataset[sample_idx]['choices'][dataset[sample_idx]['relative_caption_label']].title()
@@ -128,6 +140,7 @@ def run_head_attribution(args, processor, model, dataset, target_modality, n_sam
         
         all_predictions_clean.append(pred)
         all_total_logit_diffs[curr_num_samples] = clean_logit_diff
+        concept_types.append(concept_type)
 
 
         if args.model_family in ["llava", "llava-onevision", "instructblip"]:
@@ -174,9 +187,10 @@ def run_head_attribution(args, processor, model, dataset, target_modality, n_sam
                 all_logit_diffs, 
                 all_total_logit_diffs, 
                 all_predictions_clean, 
-                sample_idx_list
+                sample_idx_list,
+                concept_types
             ), f
         )
 
     print(f"num_examples_with_same_caption_image_first_token: {num_invalid}")
-    return all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list
+    return all_logit_diffs, all_total_logit_diffs, all_predictions_clean, sample_idx_list, concept_types

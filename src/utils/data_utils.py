@@ -5,7 +5,7 @@ from data.multimodal_torchvision import MultimodalDataset, LmEvaluationDataColla
 def get_dataset(split, prompt_generator, args):
     if args.dataset in ["cifar10", "cifar100"]:
         data_wrapper = MultimodalDataset
-    elif args.dataset in ["imagenet", "imagenet100", "Pascal", "CUB_color"]:
+    elif args.dataset in ["imagenet", "imagenet100", "Pascal", "CUB_color", "cogcontrol2"]:
         data_wrapper = MultimodalDataset
         if split == "test":
             split="val"
@@ -19,7 +19,7 @@ def get_dataset(split, prompt_generator, args):
 
 def get_dataloader(dataset, processor, args, is_train):
     
-    if args.dataset in ["cifar10", "cifar100", "imagenet100", "Pascal", "CUB_color"]:
+    if args.dataset in ["cifar10", "cifar100", "imagenet100", "Pascal", "CUB_color", "cogcontrol2"]:
         collator = LmEvaluationDataCollator(processor, False, text_only=(args.caption_type=="text_only"))
     else:
         raise NotImplementedError(f"{args.dataset} not supported yet.")

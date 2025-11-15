@@ -1,0 +1,15 @@
+{
+    "seed": 42,
+    "work_dir": "/data/ztw/vlm_conflicting_info_processing",
+    "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "dataset": "cogcontrol2",
+    "version": 0,
+    "num_samples": -1,
+    "caption_type": "inconsistent",
+    "order": "icq",
+    "n_candidates": 2,
+    "is_explicit_helper": 0,
+    "is_assistant_prompt": 1,
+    "use_pointers": 1,
+    "batch_size": 1
+}
